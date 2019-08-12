@@ -1,0 +1,16 @@
+{
+    "DataSync": [
+        {
+            "job": {
+                "name": "oracle2postgres",
+                "srcSql": " select *  FROM \"his_clinic_item_category\" ",
+                "srcTable": "his_clinic_item_category",
+                "desTable": "his_clinic_item_category_tmp",
+                "FieldsMap": {
+                },
+                "desTablePK": "id",
+                "updateType": "full"
+            }
+        }
+    ]
+}

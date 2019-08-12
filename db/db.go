@@ -1,0 +1,413 @@
+//==================================
+//  * Name：DataSync
+//  * DateTime：2019/07/22 22:30
+//  * File: db.go
+//  * Note: db common handle .
+//==================================
+
+package db
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-xorm/xorm"
+	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-oci8"
+)
+
+func Setup() {
+
+}
+
+func (db *DBServer) Start() error {
+	var err error
+
+	dbtype := db.DBtype
+	host := db.Host
+	user := db.User
+	passwd := db.Passwd
+	dbname := db.DBName
+
+	switch dbtype {
+	case MYSQL:
+		DSN := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8", user, passwd, host, dbname)
+		db.Engine, err = xorm.NewEngine(MYSQL, DSN)
+	case POSTGRESQL:
+		DSN := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=disable", user, passwd, host, dbname)
+		db.Engine, err = xorm.NewEngine(POSTGRESQL, DSN)
+	case ORACLE:
+		// [username/[password]@]host[:port][/instance_name]
+		DSN := fmt.Sprintf("%s/%s@%s/orcl", user, passwd, host)
+		db.Engine, err = xorm.NewEngine("oci8", DSN)
+	case SQLITE3:
+		// ./testdb.db
+		db.Engine, err = xorm.NewEngine(SQLITE3, fmt.Sprintf("%s", dbname))
+	default:
+		panic(fmt.Sprintf("InitDB error . dbtype %s is error .", dbtype))
+	}
+
+	if err != nil {
+		panic(fmt.Sprintf("InitDB error . error message : %s", err))
+	}
+	db.Engine.SetMaxIdleConns(DBConnMax / 2)
+	db.Engine.SetMaxOpenConns(DBConnMax)
+	return nil
+}
+
+func (db *DBServer) Stop() error {
+	if db.Engine != nil {
+		db.Engine.Close()
+	}
+	return nil
+}
+
+func (db *DBServer) ReName(resultMap []map[string]string, reNameInfo ReNameMapInfo) []map[string]string {
+	res := resultMap
+	nameMap := reNameInfo.NameMap
+	if nameMap == nil || len(nameMap) == 0 {
+		return res
+	}
+	for i := 0; i < len(res); i++ {
+		itemMap := res[i]
+		for src, des := range nameMap {
+			tmpStr := itemMap[src]
+			itemMap[des] = tmpStr
+			delete(itemMap, src)
+		}
+		res[i] = itemMap
+	}
+	// oracle handle . delete RN .
+	if _, ok := res[0]["RN"]; ok {
+		for i := 0; i < len(res); i++ {
+			itemMap := res[i]
+			delete(itemMap, "RN")
+		}
+	}
+	return res
+}
+
+func (db *DBServer) Query(queryInfo QueryInfo) []map[string]string {
+	if db.Engine != nil {
+		sql := createQuerySql(queryInfo)
+		results, err := db.Engine.QueryString(sql)
+		if err != nil {
+			fmt.Println("Query err : ", err, " sql : ", sql)
+		}
+		return results
+	}
+	return nil
+}
+
+func (db *DBServer) QuerySQL(sql string) []map[string]string {
+	if db.Engine != nil {
+		results, err := db.Engine.QueryString(sql)
+		if err != nil {
+			fmt.Println("Query err : ", err, "sql : ", sql)
+		}
+		return results
+	}
+	return nil
+}
+
+func (db *DBServer) QueryTotalCount(queryInfo QueryInfo) uint {
+	if db.Engine != nil {
+		sql := createQueryTotalCountSql(queryInfo)
+		results, err := db.Engine.QueryString(sql)
+		if err != nil {
+			fmt.Println("Query err : ", err, " sql : ", sql)
+			return 0
+		}
+		strCount, ok := results[0]["count"]
+		if ok == false {
+			// for oracle handle.
+			strCount = results[0]["COUNT"]
+		}
+		count, _ := strconv.Atoi(strCount)
+		return uint(count)
+	}
+	return 0
+}
+
+func (db *DBServer) Exec(execInfo ExecInfo) error {
+	if db.Engine != nil {
+		sqlArr := createExecSql(db.DBtype, execInfo)
+		for _, sql := range sqlArr {
+			_, err := db.Engine.Exec(sql)
+			if err != nil {
+				fmt.Println("Exec err : ", err, " sql : ", sql)
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (db *DBServer) ExecSQL(sql string) error {
+	if db.Engine != nil {
+		_, err := db.Engine.Exec(sql)
+		if err != nil {
+			fmt.Println("Exec err : ", err, " sql : ", sql)
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *DBServer) TruncateTable(tablename string) error {
+	if db.Engine != nil {
+		found := false
+		for _, v := range db.TablesName {
+			if v == tablename {
+				found = true
+			}
+		}
+		if found {
+			sqlstr := "TRUNCATE " + tablename
+			_, err := db.Engine.Exec(sqlstr)
+			checkErr(err)
+		}
+	}
+	return nil
+}
+
+func createQuerySql(queryInfo QueryInfo) string {
+	sql := ""
+
+	keyStr := ""
+	ConditionStr := ""
+	// select key1,key2 from tablename where condition1,condition2 order by PK limit 1,100
+	if (len(queryInfo.KeyArr) == 0) || (len(queryInfo.KeyArr) == 1 && queryInfo.KeyArr[0] == "*") {
+		keyStr = "*"
+	} else {
+		keyStr = strCombine(queryInfo.KeyArr, ",")
+	}
+	if len(queryInfo.ConditionArr) > 0 {
+		ConditionStr = "where "
+		ConditionStr = ConditionStr + strCombine(queryInfo.ConditionArr, " AND ")
+	}
+
+	sql = fmt.Sprintf("select %s from %s %s order by %s", keyStr, queryInfo.TableName, ConditionStr, queryInfo.PK)
+	return sql
+}
+
+func (db *DBServer) GetQueryTotalCount(sql string) uint {
+	sqlUpper := strings.ToLower(sql)
+	pos := strings.Index(sqlUpper, "from")
+	if pos <= 0 {
+		return 0
+	}
+	totalSql := "select count(*) as count " + sql[pos:]
+	if totalSql != "" {
+		res := db.QuerySQL(totalSql)
+		if len(res) > 0 {
+			strCount, ok := res[0]["count"]
+			if ok == false {
+				// for oracle handle.
+				strCount = res[0]["COUNT"]
+			}
+			count, _ := strconv.Atoi(strCount)
+			return uint(count)
+		}
+	}
+	return 0
+}
+
+func (db *DBServer) QueryPage(sql string, start int, num int) string {
+	if db.DBtype == ORACLE {
+		tmpFmt := `
+		SELECT *
+		FROM (SELECT a.*, ROWNUM rn
+				FROM (%s) a
+				WHERE ROWNUM <= %d)
+		WHERE rn > %d
+		`
+		return fmt.Sprintf(tmpFmt, sql, (num + start), start)
+	}
+	if db.DBtype == MYSQL {
+		return sql + fmt.Sprintf(" limit %d,%d ", start, num)
+	}
+	if db.DBtype == POSTGRESQL {
+		return sql + fmt.Sprintf(" limit %d offset %d ", num, start)
+	}
+	return sql
+}
+
+func (db *DBServer) GetTableColumns(tableName string) []map[string]string {
+	sql := ""
+	if db.DBtype == ORACLE {
+		strFmt := "select COLUMN_NAME as NAME,DATA_TYPE as TYPE from user_tab_columns where Table_Name='%s' "
+		sql = fmt.Sprintf(strFmt, tableName)
+	}
+	if db.DBtype == POSTGRESQL {
+		strFmt := ` SELECT a.attname AS name,t.typname AS type FROM pg_class c,pg_attribute a,pg_type t
+		WHERE c.relname = '%s' and a.attnum > 0 and a.attrelid = c.oid and a.atttypid = t.oid
+		ORDER BY a.attnum `
+		sql = fmt.Sprintf(strFmt, tableName)
+	}
+	results, err := db.Engine.QueryString(sql)
+	if err != nil {
+		fmt.Println("Query err : ", err, " sql : ", sql)
+	}
+	return results
+}
+
+func createQueryTotalCountSql(queryInfo QueryInfo) string {
+	sql := ""
+	keyStr := ""
+	ConditionStr := ""
+	keyStr = " count(*) as count "
+	if len(queryInfo.ConditionArr) > 0 {
+		ConditionStr = "where "
+		ConditionStr = ConditionStr + strCombine(queryInfo.ConditionArr, " AND ")
+	}
+	sql = fmt.Sprintf("select %s from %s %s order by %s", keyStr, queryInfo.TableName, ConditionStr, queryInfo.PK)
+	return sql
+}
+
+func createExecSql(dbtype string, execInfo ExecInfo) []string {
+	sqlArr := []string{}
+	if execInfo.Handle == INSERT {
+		sqlArr = insertSql(dbtype, execInfo)
+	}
+	if execInfo.Handle == UPDATE {
+		sqlArr = updateSql(dbtype, execInfo)
+	}
+	return sqlArr
+}
+
+func insertSql(dbtype string, execInfo ExecInfo) []string {
+	sql := ""
+	sqlArr := []string{}
+
+	results := execInfo.Content
+	tablename := execInfo.TableName
+	ColumnArr := []string{}
+	keyStr, valueStr := "", ""
+	for k, _ := range results[0] {
+		keyStr += k + ","
+		ColumnArr = append(ColumnArr, k)
+	}
+	keyStr = keyStr[:len(keyStr)-1]
+
+	if dbtype == MYSQL || dbtype == POSTGRESQL || dbtype == SQLITE3 {
+		for i := 0; i < len(results); i += MAXSQLCOUNT {
+			valueStr = "VALUES"
+			endflag := false
+			for count := 0; count < MAXSQLCOUNT && !endflag; count++ {
+				RowTmpValueStr := "("
+				for j := 0; j < len(ColumnArr); j++ {
+					if (i + count) >= len(results) {
+						endflag = true
+						break
+					}
+					TmpValueStr := results[i+count][ColumnArr[j]]
+					if TmpValueStr == "<nil>" {
+						TmpValueStr = ""
+					}
+					if strings.Contains(TmpValueStr, "'") {
+						TmpValueStr = strings.Replace(TmpValueStr, "'", "''", -1)
+					}
+					RowTmpValueStr += "'" + TmpValueStr + "'" + ","
+				}
+				if endflag {
+					RowTmpValueStr = ""
+				} else {
+					RowTmpValueStr = RowTmpValueStr[:len(RowTmpValueStr)-1]
+					RowTmpValueStr += "),"
+					valueStr += RowTmpValueStr
+				}
+			}
+			valueStr = valueStr[:len(valueStr)-1]
+			sqlstr := "INSERT INTO " + tablename + " (" + keyStr + " ) " + valueStr
+			sqlArr = append(sqlArr, sqlstr)
+		}
+		return sqlArr
+	}
+	if dbtype == ORACLE {
+		beginStr := "BEGIN \r\n"
+		endStr := "\r\n END;"
+
+		insertAllStr := ""
+		insertStr := fmt.Sprintf(" INSERT INTO %s (%s) ", tablename, keyStr)
+		for i := 0; i < len(results); i += MAXSQLCOUNT {
+			valueStrFmt := " VALUES (%s) ; "
+			valueStr := ""
+			endflag := false
+			for count := 0; count < MAXSQLCOUNT && !endflag; count++ {
+				RowTmpValueStr := ""
+				for j := 0; j < len(ColumnArr); j++ {
+					if (i + count) >= len(results) {
+						endflag = true
+						break
+					}
+					TmpValueStr := results[i+count][ColumnArr[j]]
+					if strings.Contains(TmpValueStr, "'") {
+						TmpValueStr = strings.Replace(TmpValueStr, "'", "''", -1)
+					}
+					RowTmpValueStr += "'" + TmpValueStr + "'" + ","
+				}
+				if endflag {
+					RowTmpValueStr = ""
+				} else {
+					RowTmpValueStr = RowTmpValueStr[:len(RowTmpValueStr)-1]
+					valueStr = fmt.Sprintf(valueStrFmt, RowTmpValueStr)
+					insertAllStr = insertAllStr + insertStr + valueStr
+				}
+			}
+		}
+		sql = beginStr + insertAllStr + endStr
+		sqlArr = append(sqlArr, sql)
+		return sqlArr
+	}
+	return sqlArr
+}
+
+func updateSql(dbtype string, execInfo ExecInfo) []string {
+
+	// update table set key=value where id=1
+	sqlFmt := " update %s set %s where %s='%s' ; "
+	content := execInfo.Content
+	sqlArr := []string{}
+	count := len(execInfo.Content)
+
+	for i := 0; i < count; i += MAXSQLCOUNT {
+		sqlTotal := ""
+		sql := ""
+		endflag := false
+		for j := 0; j < MAXSQLCOUNT && !endflag; j++ {
+			strKey := ""
+			PKValue := ""
+			if (i + j) >= count {
+				endflag = true
+				break
+			}
+			for k, v := range content[i+j] {
+				if k != execInfo.PK {
+					strKey = strKey + k + "='" + v + "',"
+				} else {
+					PKValue = v
+				}
+			}
+			strKey = strKey[:len(strKey)-1]
+			sql = fmt.Sprintf(sqlFmt, execInfo.TableName, strKey, execInfo.PK, PKValue)
+			sqlTotal = sqlTotal + sql
+			sqlArr = append(sqlArr, sqlTotal)
+		}
+	}
+	return sqlArr
+}
+
+func strCombine(arr []string, comb string) string {
+	res := ""
+	for k, v := range arr {
+		if k == len(arr)-1 {
+			res += v
+		} else {
+			res += v + comb
+		}
+	}
+	return res
+}

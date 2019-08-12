@@ -1,0 +1,17 @@
+DataSync:
+  Name : "DataSync"
+  SrcDB:
+    DBtype: "oracle"
+    User : "scott"
+    Passwd : "scott"
+    Host : "192.168.0.80:1521"
+    DBName : "SCOTT"
+  DesDB:
+    DBtype: "postgres"
+    User : "postgres"
+    Passwd : "postgres"
+    Host : "192.168.0.80:5432"
+    DBName : "testdb"
+  Redis:
+    Host: "192.168.0.80:6379"
+    Passwd: ""
