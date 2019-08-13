@@ -10,12 +10,7 @@ package config
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
-
-	"github.com/spf13/viper"
 )
-
-var Config *GlobalConfig
 
 type GlobalConfig struct {
 	Name  string
@@ -49,32 +44,11 @@ var ConfigStringJSON = `
 
 // 没有main文件，打开的路径也不对
 func ParseConfig(projectName string, configFile string, env string) {
-	viper.SetConfigFile(configFile)
-	viper.SetConfigType("yaml")
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.Println("ParseConfigError:", err)
-		panic(err)
-	}
-	Config = new(GlobalConfig)
-	name := ""
-	err = viper.UnmarshalKey("DataSync.Name", &name)
-	if err != nil {
-		log.Println("UnmarshalConfigError:", err)
-		panic(err)
-	}
-
-	err = viper.UnmarshalKey("DataSync", &Config)
-	if err != nil {
-		log.Println("UnmarshalConfigError:", err)
-		panic(err)
-	}
-
 	// Read config JSON.
 	buf, err := ioutil.ReadFile("./config.json")
 	if err != nil {
-		panic(fmt.Sprintf("JSON config ReadFile error : ", err))
+		panic(fmt.Sprintf("JSON config ReadFile error : %s", err))
 	}
 	ConfigStringJSON = string(buf)
-	fmt.Sprintf(ConfigStringJSON)
+	fmt.Println(ConfigStringJSON)
 }

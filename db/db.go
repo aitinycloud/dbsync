@@ -12,10 +12,11 @@ import (
 	"strconv"
 	"strings"
 
+	"database/sql"
+
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/go-xorm/xorm"
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-oci8"
+	//_ "github.com/mattn/go-oci8"
 )
 
 func Setup() {
@@ -34,17 +35,17 @@ func (db *DBServer) Start() error {
 	switch dbtype {
 	case MYSQL:
 		DSN := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8", user, passwd, host, dbname)
-		db.Engine, err = xorm.NewEngine(MYSQL, DSN)
+		db.DB, err = sql.Open(MYSQL, DSN)
 	case POSTGRESQL:
 		DSN := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=disable", user, passwd, host, dbname)
-		db.Engine, err = xorm.NewEngine(POSTGRESQL, DSN)
+		db.DB, err = sql.Open(POSTGRESQL, DSN)
 	case ORACLE:
 		// [username/[password]@]host[:port][/instance_name]
 		DSN := fmt.Sprintf("%s/%s@%s/orcl", user, passwd, host)
-		db.Engine, err = xorm.NewEngine("oci8", DSN)
+		db.DB, err = sql.Open("oci8", DSN)
 	case SQLITE3:
 		// ./testdb.db
-		db.Engine, err = xorm.NewEngine(SQLITE3, fmt.Sprintf("%s", dbname))
+		db.DB, err = sql.Open(SQLITE3, fmt.Sprintf("%s", dbname))
 	default:
 		panic(fmt.Sprintf("InitDB error . dbtype %s is error .", dbtype))
 	}
@@ -52,14 +53,14 @@ func (db *DBServer) Start() error {
 	if err != nil {
 		panic(fmt.Sprintf("InitDB error . error message : %s", err))
 	}
-	db.Engine.SetMaxIdleConns(DBConnMax / 2)
-	db.Engine.SetMaxOpenConns(DBConnMax)
+	db.DB.SetMaxIdleConns(DBConnMax / 2)
+	db.DB.SetMaxOpenConns(DBConnMax)
 	return nil
 }
 
 func (db *DBServer) Stop() error {
-	if db.Engine != nil {
-		db.Engine.Close()
+	if db.DB != nil {
+		db.DB.Close()
 	}
 	return nil
 }
@@ -89,12 +90,37 @@ func (db *DBServer) ReName(resultMap []map[string]string, reNameInfo ReNameMapIn
 	return res
 }
 
+func dbQueryString(db *sql.DB, strsql string) ([]map[string]string, error) {
+	rows, err := db.Query(strsql)
+	fmt.Println("strsql : ", strsql)
+	checkErr(err)
+	cols, _ := rows.Columns()
+	values := make([][]byte, len(cols))
+	scans := make([]interface{}, len(cols))
+	for i := range values {
+		scans[i] = &values[i]
+	}
+	results := []map[string]string{}
+	for rows.Next() {
+		if err := rows.Scan(scans...); err != nil {
+			return results, err
+		}
+		curRow := make(map[string]string)
+		for k, v := range values {
+			curRow[cols[k]] = string(v)
+		}
+		results = append(results, curRow)
+	}
+	rows.Close()
+	return results, nil
+}
+
 func (db *DBServer) Query(queryInfo QueryInfo) []map[string]string {
-	if db.Engine != nil {
+	if db.DB != nil {
 		sql := createQuerySql(queryInfo)
-		results, err := db.Engine.QueryString(sql)
+		results, err := dbQueryString(db.DB, sql)
 		if err != nil {
-			fmt.Println("Query err : ", err, " sql : ", sql)
+			fmt.Println("Query err , sql : ", sql)
 		}
 		return results
 	}
@@ -102,8 +128,8 @@ func (db *DBServer) Query(queryInfo QueryInfo) []map[string]string {
 }
 
 func (db *DBServer) QuerySQL(sql string) []map[string]string {
-	if db.Engine != nil {
-		results, err := db.Engine.QueryString(sql)
+	if db.DB != nil {
+		results, err := dbQueryString(db.DB, sql)
 		if err != nil {
 			fmt.Println("Query err : ", err, "sql : ", sql)
 		}
@@ -112,30 +138,11 @@ func (db *DBServer) QuerySQL(sql string) []map[string]string {
 	return nil
 }
 
-func (db *DBServer) QueryTotalCount(queryInfo QueryInfo) uint {
-	if db.Engine != nil {
-		sql := createQueryTotalCountSql(queryInfo)
-		results, err := db.Engine.QueryString(sql)
-		if err != nil {
-			fmt.Println("Query err : ", err, " sql : ", sql)
-			return 0
-		}
-		strCount, ok := results[0]["count"]
-		if ok == false {
-			// for oracle handle.
-			strCount = results[0]["COUNT"]
-		}
-		count, _ := strconv.Atoi(strCount)
-		return uint(count)
-	}
-	return 0
-}
-
 func (db *DBServer) Exec(execInfo ExecInfo) error {
-	if db.Engine != nil {
+	if db.DB != nil {
 		sqlArr := createExecSql(db.DBtype, execInfo)
 		for _, sql := range sqlArr {
-			_, err := db.Engine.Exec(sql)
+			_, err := db.DB.Exec(sql)
 			if err != nil {
 				fmt.Println("Exec err : ", err, " sql : ", sql)
 				return err
@@ -146,8 +153,8 @@ func (db *DBServer) Exec(execInfo ExecInfo) error {
 }
 
 func (db *DBServer) ExecSQL(sql string) error {
-	if db.Engine != nil {
-		_, err := db.Engine.Exec(sql)
+	if db.DB != nil {
+		_, err := db.DB.Exec(sql)
 		if err != nil {
 			fmt.Println("Exec err : ", err, " sql : ", sql)
 			return err
@@ -157,7 +164,7 @@ func (db *DBServer) ExecSQL(sql string) error {
 }
 
 func (db *DBServer) TruncateTable(tablename string) error {
-	if db.Engine != nil {
+	if db.DB != nil {
 		found := false
 		for _, v := range db.TablesName {
 			if v == tablename {
@@ -166,7 +173,7 @@ func (db *DBServer) TruncateTable(tablename string) error {
 		}
 		if found {
 			sqlstr := "TRUNCATE " + tablename
-			_, err := db.Engine.Exec(sqlstr)
+			_, err := db.DB.Exec(sqlstr)
 			checkErr(err)
 		}
 	}
@@ -247,7 +254,7 @@ func (db *DBServer) GetTableColumns(tableName string) []map[string]string {
 		ORDER BY a.attnum `
 		sql = fmt.Sprintf(strFmt, tableName)
 	}
-	results, err := db.Engine.QueryString(sql)
+	results, err := dbQueryString(db.DB, sql)
 	if err != nil {
 		fmt.Println("Query err : ", err, " sql : ", sql)
 	}

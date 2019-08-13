@@ -10,7 +10,7 @@ package db
 import (
 	"log"
 
-	"github.com/go-xorm/xorm"
+	"database/sql"
 )
 
 const (
@@ -32,7 +32,7 @@ type DBServer struct {
 	Passwd      string
 	Host        string
 	DBName      string
-	Engine      *xorm.Engine
+	DB          *sql.DB
 	TablesName  []string
 	TableKeys   map[string][]string
 }

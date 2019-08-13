@@ -1,4 +1,4 @@
-package db 
+package db
 
 import (
 	"fmt"
@@ -127,29 +127,6 @@ func TestDBServerQuery(t *testing.T) {
 	}
 	t.Log(results)
 
-}
-
-func TestDBServerQueryTotalCount(t *testing.T) {
-	oracleServer := DBServer{}
-	oracleServer.DBtype = "oracle"
-	oracleServer.Host = "192.168.0.80:1521"
-	oracleServer.User = "scott"
-	oracleServer.Passwd = "scott"
-	oracleServer.DBName = "SCOTT"
-	err := oracleServer.Start()
-	if err != nil {
-		t.Errorf("%s", err)
-	}
-	queryInfo := QueryInfo{}
-	queryInfo.DBName = "SCOTT"
-	queryInfo.TableName = "DEPT"
-	queryInfo.PK = "DEPTNO"
-
-	count := oracleServer.QueryTotalCount(queryInfo)
-	if count == 0 {
-		t.Errorf("QueryTotalCount Fail.")
-	}
-	t.Log(count)
 }
 
 func TestDBServerReName(t *testing.T) {
@@ -318,7 +295,6 @@ func TestDBServerExecReNameHandle(t *testing.T) {
 	}
 }
 
-
 func TestUpdateSql(t *testing.T) {
 	dbtype := POSTGRESQL
 	execInfo := ExecInfo{}
@@ -331,19 +307,15 @@ func TestUpdateSql(t *testing.T) {
 	resultMap["id"] = "8"
 	resultMap["shortName"] = "sName8"
 	resultMap["type"] = "8"
-	content = append(content,resultMap)
+	content = append(content, resultMap)
 
 	resultMap2 := make(map[string]string)
 	resultMap2["id"] = "9"
 	resultMap2["shortName"] = "sName9"
 	resultMap2["type"] = "9"
-	content = append(content,resultMap2)
+	content = append(content, resultMap2)
 
 	execInfo.Content = content
-	res := updateSql(dbtype,execInfo)
+	res := updateSql(dbtype, execInfo)
 	fmt.Println(res)
-	if res == "" {
-		t.Error("updateSql error.")
-	}
 }
-
