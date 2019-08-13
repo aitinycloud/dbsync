@@ -17,9 +17,10 @@ import (
 
 	"../config"
 	"../db"
+	"../pkg/cache"
 	"../pkg/logging"
-	"../pkg/rediscli"
 	"github.com/go-redis/redis"
+	gcache "github.com/patrickmn/go-cache"
 )
 
 var SrcDBPtr *db.DBServer
@@ -30,12 +31,8 @@ var redisclient *redis.Client
 func Setup() {
 	logging.Info(fmt.Sprintf("DataSync handle Setup , read config ."))
 	config.ParseConfig("DataSync", "config.yaml", "")
-	//redis init.
-	redisc := rediscli.RedisInit(config.Config.Redis["host"], config.Config.Redis["passwd"])
-	if redisc == nil {
-		panic(fmt.Sprintf(" redis is nil, Is config error ?, host : %s , passwd : %s ", config.Config.Redis["host"], config.Config.Redis["passwd"]))
-	}
-	redisclient = redisc
+	//cache init.
+	cache.CacheInit()
 }
 
 func Work() {
@@ -43,11 +40,12 @@ func Work() {
 	db.Setup()
 	//Get config.
 	SrcDB := db.DBServer{}
-	SrcDB.DBtype = config.Config.SrcDB["dbtype"]
-	SrcDB.User = config.Config.SrcDB["user"]
-	SrcDB.Passwd = config.Config.SrcDB["passwd"]
-	SrcDB.Host = config.Config.SrcDB["host"]
-	SrcDB.DBName = config.Config.SrcDB["dbname"]
+	
+	SrcDB.DBtype = gjson.Get(config.ConfigStringJSON, "SrcDB.type").String()
+	SrcDB.User = gjson.Get(config.ConfigStringJSON, "SrcDB.User").String()
+	SrcDB.Passwd = gjson.Get(config.ConfigStringJSON, "SrcDB.Passwd").String()
+	SrcDB.Host = gjson.Get(config.ConfigStringJSON, "SrcDB.Host").String()
+	SrcDB.DBName = gjson.Get(config.ConfigStringJSON, "SrcDB.DBName").String()
 	err := SrcDB.Start()
 	if err != nil {
 		logging.Info(fmt.Sprintf("SrcDB Link Fail,Please check SrcDB config."))
@@ -55,11 +53,11 @@ func Work() {
 	}
 	SrcDBPtr = &SrcDB
 	DesDB := db.DBServer{}
-	DesDB.DBtype = config.Config.DesDB["dbtype"]
-	DesDB.User = config.Config.DesDB["user"]
-	DesDB.Passwd = config.Config.DesDB["passwd"]
-	DesDB.Host = config.Config.DesDB["host"]
-	DesDB.DBName = config.Config.DesDB["dbname"]
+	DesDB.DBtype = gjson.Get(config.ConfigStringJSON, "DesDB.type").String()
+	DesDB.User = gjson.Get(config.ConfigStringJSON, "DesDB.User").String()
+	DesDB.Passwd = gjson.Get(config.ConfigStringJSON, "DesDB.Passwd").String()
+	DesDB.Host = gjson.Get(config.ConfigStringJSON, "DesDB.Host").String()
+	DesDB.DBName = gjson.Get(config.ConfigStringJSON, "DesDB.DBName").String()
 	err = DesDB.Start()
 	if err != nil {
 		logging.Info(fmt.Sprintf("DesDB Link Fail,Please check DesDB config."))
@@ -103,7 +101,7 @@ func Work() {
 		sql := "select * from " + desTableName
 		sql = DesDBPtr.QueryPage(sql, i, db.MAXPAGECOUNT)
 		desTableResult := DesDBPtr.QuerySQL(sql)
-		CacheToRedis(desTableName, desTableResult)
+		CacheToLocal(desTableName, desTableResult)
 	}
 
 	//support page query. get total count .
@@ -122,7 +120,7 @@ func Work() {
 			renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
 			//renameResultstr, _ := json.Marshal(renameResult)
 			//logging.Info("ReNameResult : ", string(renameResultstr))
-			insertExec, updateExec := CompareWithRedis(tableColumnsMap, renameResult)
+			insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
 			InsertAndUpdate(insertExec, updateExec)
 		}
 	} else {
@@ -131,22 +129,22 @@ func Work() {
 		renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
 		//renameResultstr, _ := json.Marshal(renameResult)
 		//logging.Info("ReNameResult : ", string(renameResultstr))
-		insertExec, updateExec := CompareWithRedis(tableColumnsMap, renameResult)
+		insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
 		InsertAndUpdate(insertExec, updateExec)
 	}
 }
 
-func CacheToRedis(tableName string, desTableResult []map[string]string) {
+func CacheToLocal(tableName string, desTableResult []map[string]string) {
 	jobMap := gjson.Get(config.ConfigStringJSON, "DataSync.0.job").Map()
 	tablePK := jobMap["desTablePK"].String()
 	for _, v := range desTableResult {
 		key := v[tablePK]
 		strVal, _ := json.Marshal(v)
-		redisclient.HSet(tableName, key, string(strVal))
+		cache.GCache.Set(tableName + "_" + key, string(strVal), gcache.NoExpiration)
 	}
 }
 
-func CompareWithRedis(tableColumnsMap map[string]string, renameResult []map[string]string) (db.ExecInfo, db.ExecInfo) {
+func CompareWithCache(tableColumnsMap map[string]string, renameResult []map[string]string) (db.ExecInfo, db.ExecInfo) {
 	// Compare.
 	jobMap := gjson.Get(config.ConfigStringJSON, "DataSync.0.job").Map()
 	tableName := jobMap["desTable"].String()
@@ -222,7 +220,7 @@ func InsertAndUpdate(insertExec db.ExecInfo, updateExec db.ExecInfo) {
 			logging.Info(err)
 		}
 		//update redis.
-		CacheToRedis(insertExec.TableName, insertExec.Content)
+		CacheToLocal(insertExec.TableName, insertExec.Content)
 	}
 	//update handle.
 	if len(updateExec.Content) > 0 {
@@ -232,7 +230,7 @@ func InsertAndUpdate(insertExec db.ExecInfo, updateExec db.ExecInfo) {
 			logging.Info(err)
 		}
 		//update redis.
-		CacheToRedis(insertExec.TableName, insertExec.Content)
+		CacheToLocal(insertExec.TableName, insertExec.Content)
 	}
 }
 

@@ -2,7 +2,6 @@
     "Name" : "dbsync",
     "SrcDB" : { "type" : "oracle" , "User" : "scott" , "Passwd" : "scott" , "Host" : "192.168.0.80:1521" , "DBName" : "SCOTT" },
     "DesDB" : { "type" : "postgres" , "User" : "postgres" , "Passwd" : "postgres" , "Host" : "192.168.0.80:5432" , "DBName" : "testdb" },
-    "redis" : { "Host" : "192.168.0.80:6379" , "Passwd" : ""  },
     "DataSync": [
         {
             "job": {
