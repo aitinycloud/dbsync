@@ -27,9 +27,9 @@ dbsync是数据库同步工具,使用go编写，主要特性有
 4. 性能优化,批量操作
 
 ## bench
-1. 本地虚拟机 centos6 2核2G 
-2. postgres (PostgreSQL) 10.6
-3. mysql  Ver 14.14 Distrib 5.1.73
+- 本地虚拟机 centos6 2核2G 
+- postgres (PostgreSQL) 10.6
+- mysql  Ver 14.14 Distrib 5.1.73
 
 1. insert 117275 条记录 14S TPS 8376/s
 2. update 117275 条记录 44S TPS 2665/s (update操作中计算md5会花一点时间)
