@@ -1,6 +1,6 @@
 //==================================
 //  * Name：DataSync
-//  * DateTime：2019/07/22 22:30
+//  * DateTime：2019/08/15
 //  * File: db.go
 //  * Note: db common handle .
 //==================================
@@ -147,6 +147,7 @@ func (db *DBServer) Exec(execInfo ExecInfo) error {
 				fmt.Println("Exec err : ", err, " sql : ", sql)
 				return err
 			}
+			//time.Sleep(10 * time.Microsecond)
 		}
 	}
 	return nil
@@ -201,12 +202,16 @@ func createQuerySql(queryInfo QueryInfo) string {
 }
 
 func (db *DBServer) GetQueryTotalCount(sql string) uint {
-	sqlUpper := strings.ToLower(sql)
-	pos := strings.Index(sqlUpper, "from")
+	sqlLower := strings.ToLower(sql)
+	pos := strings.Index(sqlLower, "from")
 	if pos <= 0 {
 		return 0
 	}
 	totalSql := "select count(*) as count " + sql[pos:]
+	orderPos := strings.Index(sqlLower, "order")
+	if orderPos > 0 {
+		totalSql = "select count(*) as count " + sql[pos:orderPos]
+	}
 	if totalSql != "" {
 		res := db.QuerySQL(totalSql)
 		if len(res) > 0 {
@@ -220,6 +225,25 @@ func (db *DBServer) GetQueryTotalCount(sql string) uint {
 		}
 	}
 	return 0
+}
+
+func (db *DBServer) GetMaxValue(field string) string {
+	sql := ""
+	if db.DBtype == ORACLE {
+		sql = fmt.Sprintf(" select %s from %s where rownum <= 1 order by %s desc ", field, db.TablesName, field)
+	}
+	if db.DBtype == MYSQL || db.DBtype == POSTGRESQL {
+		sql = fmt.Sprintf(" select %s from %s order by %s desc limit 1 ", field, db.TablesName, field)
+	}
+	res := db.QuerySQL(sql)
+	if len(res) > 0 {
+		strCount, ok := res[0][field]
+		if ok == false {
+			fmt.Println("GetMaxValue error , field : ", field, " not in ", db.TablesName)
+		}
+		return strCount
+	}
+	return ""
 }
 
 func (db *DBServer) QueryPage(sql string, start int, num int) string {

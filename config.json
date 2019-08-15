@@ -1,19 +1,20 @@
 {
     "Name" : "dbsync",
-    "SrcDB" : { "type" : "oracle" , "User" : "scott" , "Passwd" : "scott" , "Host" : "192.168.0.80:1521" , "DBName" : "SCOTT" },
-    "DesDB" : { "type" : "postgres" , "User" : "postgres" , "Passwd" : "postgres" , "Host" : "192.168.0.80:5432" , "DBName" : "testdb" },
+    "SrcDB" : { "type" : "postgres" , "User" : "postgres" , "Passwd" : "postgres" , "Host" : "192.168.1.18:5432" , "DBName" : "insight" },
+    "DesDB" : { "type" : "mysql" , "User" : "root" , "Passwd" : "root" , "Host" : "192.168.1.18:3306" , "DBName" : "insight" },
     "DataSync": [
         {
             "job": {
-                "name": "oracle2postgres",
-                "srcSql": " select *  FROM \"his_clinic_item_category\" ",
-                "srcTable": "his_clinic_item_category",
-                "desTable": "his_clinic_item_category_tmp",
+                "name": "postgres2mysql",
+                "srcSql": " select *  FROM testplan order by planid ",
+                "srcTable": "testplan",
+                "desTable": "testplan",
                 "FieldsMap": {
                 },
-                "desTablePK": "id",
-                "updateType": "full"
+                "srcTablePK": "planid",
+                "desTablePK": "planid",
+                "syncType": "full"
             }
-        } 
+        }
     ]
 }

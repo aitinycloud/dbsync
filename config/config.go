@@ -1,6 +1,6 @@
 //==================================
 //  * Name：DataSync
-//  * DateTime：2019/07/22 22:30
+//  * DateTime：2019/08/15
 //  * File: config.go
 //  * Note: read config file .
 //==================================
@@ -43,9 +43,9 @@ var ConfigStringJSON = `
 `
 
 // 没有main文件，打开的路径也不对
-func ParseConfig(projectName string, configFile string, env string) {
+func ParseConfig(configFile string) {
 	// Read config JSON.
-	buf, err := ioutil.ReadFile("./config.json")
+	buf, err := ioutil.ReadFile(configFile)
 	if err != nil {
 		panic(fmt.Sprintf("JSON config ReadFile error : %s", err))
 	}

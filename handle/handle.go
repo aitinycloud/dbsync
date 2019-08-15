@@ -1,6 +1,6 @@
 //==================================
 //  * Name：DataSync
-//  * DateTime：2019/07/22 22:30
+//  * DateTime：2019/08/16
 //  * File: handle.go
 //  * Note: Business processing.
 //==================================
@@ -11,7 +11,9 @@ import (
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/tidwall/gjson"
 
@@ -19,18 +21,17 @@ import (
 	"../db"
 	"../pkg/cache"
 	"../pkg/logging"
-	"github.com/go-redis/redis"
+	"../pkg/system"
 	gcache "github.com/patrickmn/go-cache"
 )
 
 var SrcDBPtr *db.DBServer
 var DesDBPtr *db.DBServer
 
-var redisclient *redis.Client
-
 func Setup() {
 	logging.Info(fmt.Sprintf("DataSync handle Setup , read config ."))
-	config.ParseConfig("DataSync", "config.yaml", "")
+	filepath := system.GetCurrentDirectory() + "/config.json"
+	config.ParseConfig(filepath)
 	//cache init.
 	cache.CacheInit()
 }
@@ -40,7 +41,7 @@ func Work() {
 	db.Setup()
 	//Get config.
 	SrcDB := db.DBServer{}
-	
+
 	SrcDB.DBtype = gjson.Get(config.ConfigStringJSON, "SrcDB.type").String()
 	SrcDB.User = gjson.Get(config.ConfigStringJSON, "SrcDB.User").String()
 	SrcDB.Passwd = gjson.Get(config.ConfigStringJSON, "SrcDB.Passwd").String()
@@ -81,8 +82,16 @@ func Work() {
 	tableColumnsResult := SrcDB.GetTableColumns(jobMap["srcTable"].String())
 	tableColumnsMap := make(map[string]string)
 	for i := 0; i < len(tableColumnsResult); i++ {
-		key := tableColumnsResult[i]["NAME"]
-		val := tableColumnsResult[i]["TYPE"]
+		key := ""
+		val := ""
+		if SrcDB.DBtype == db.ORACLE {
+			key = tableColumnsResult[i]["NAME"]
+			val = tableColumnsResult[i]["TYPE"]
+		}
+		if SrcDB.DBtype == db.POSTGRESQL || SrcDB.DBtype == db.MYSQL {
+			key = tableColumnsResult[i]["name"]
+			val = tableColumnsResult[i]["type"]
+		}
 		if res, ok := NameMap[key]; ok {
 			tableColumnsMap[res] = val
 		} else {
@@ -104,44 +113,92 @@ func Work() {
 		CacheToLocal(desTableName, desTableResult)
 	}
 
-	//support page query. get total count .
-	sql = jobMap["srcSql"].String()
-	totalCount := SrcDB.GetQueryTotalCount(sql)
-	logging.Info(fmt.Sprintf("Source tableName : %s , totalCount : %d ", srcTableName, totalCount))
-	logging.Info(fmt.Sprintf("Destination tableName : %s , totalCount : %d", desTableName, desTotalCount))
-	if totalCount > db.MAXPAGECOUNT {
-		start := 0
-		num := db.MAXPAGECOUNT
-		for start = 0; start < int(totalCount); start += db.MAXPAGECOUNT {
-			logging.Info(fmt.Sprintf("Paging query . start : %d,num : %d. handled : %d .", start, num, start))
-			sqlQueryPage := SrcDB.QueryPage(sql, start, num)
+	// full or incr handle.
+	syncType := jobMap["syncType"].String()
+	if syncType == FULL {
+		//support page query. get total count .
+		sql = jobMap["srcSql"].String()
+		totalCount := SrcDB.GetQueryTotalCount(sql)
+		logging.Info(fmt.Sprintf("FULL handle , Source tableName : %s , totalCount : %d ", srcTableName, totalCount))
+		logging.Info(fmt.Sprintf("FULL handle , Destination tableName : %s , totalCount : %d", desTableName, desTotalCount))
+		if totalCount > db.MAXPAGECOUNT {
+			start := 0
+			num := db.MAXPAGECOUNT
+			for start = 0; start < int(totalCount); start += db.MAXPAGECOUNT {
+				logging.Info(fmt.Sprintf("Paging query . start : %d,num : %d. handled : %d .", start, num, start))
+				sqlQueryPage := SrcDB.QueryPage(sql, start, num)
+				//
+				srcTableResult := SrcDB.QuerySQL(sqlQueryPage)
+				renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
+				//renameResultstr, _ := json.Marshal(renameResult)
+				//logging.Info("ReNameResult : ", string(renameResultstr))
+				insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
+				InsertAndUpdate(insertExec, updateExec)
+			}
+		} else {
 			//
-			srcTableResult := SrcDB.QuerySQL(sqlQueryPage)
+			srcTableResult := SrcDB.QuerySQL(sql)
 			renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
 			//renameResultstr, _ := json.Marshal(renameResult)
 			//logging.Info("ReNameResult : ", string(renameResultstr))
 			insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
 			InsertAndUpdate(insertExec, updateExec)
 		}
-	} else {
-		//
-		srcTableResult := SrcDB.QuerySQL(sql)
-		renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
-		//renameResultstr, _ := json.Marshal(renameResult)
-		//logging.Info("ReNameResult : ", string(renameResultstr))
-		insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
-		InsertAndUpdate(insertExec, updateExec)
 	}
+	if syncType == INCR {
+		desPK := jobMap["desTablePK"].String()
+		desPKMax := DesDBPtr.GetMaxValue(desPK)
+		sql = jobMap["srcSql"].String()
+		if desPKMax != "" {
+			condition := fmt.Sprintf(" %s >= %s ", desPK, desPKMax)
+			sql = sqlAddCondition(srcTableName, sql, condition)
+		}
+		totalCount := SrcDB.GetQueryTotalCount(sql)
+		logging.Info(fmt.Sprintf("INCR handle , Source tableName : %s , totalCount : %d ", srcTableName, totalCount))
+		if totalCount > db.MAXPAGECOUNT {
+			start := 0
+			num := db.MAXPAGECOUNT
+			for start = 0; start < int(totalCount); start += db.MAXPAGECOUNT {
+				logging.Info(fmt.Sprintf("Paging query . start : %d,num : %d. handled : %d .", start, num, start))
+				sqlQueryPage := SrcDB.QueryPage(sql, start, num)
+				//
+				srcTableResult := SrcDB.QuerySQL(sqlQueryPage)
+				renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
+				//renameResultstr, _ := json.Marshal(renameResult)
+				//logging.Info("ReNameResult : ", string(renameResultstr))
+				insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
+				InsertAndUpdate(insertExec, updateExec)
+			}
+		} else {
+			srcTableResult := SrcDB.QuerySQL(sql)
+			renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
+			//renameResultstr, _ := json.Marshal(renameResult)
+			//logging.Info("ReNameResult : ", string(renameResultstr))
+			insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
+			InsertAndUpdate(insertExec, updateExec)
+		}
+	}
+	time.Sleep(1 * time.Second)
 }
 
 func CacheToLocal(tableName string, desTableResult []map[string]string) {
 	jobMap := gjson.Get(config.ConfigStringJSON, "DataSync.0.job").Map()
 	tablePK := jobMap["desTablePK"].String()
 	for _, v := range desTableResult {
-		key := v[tablePK]
+		PK := v[tablePK]
 		strVal, _ := json.Marshal(v)
-		cache.GCache.Set(tableName + "_" + key, string(strVal), gcache.NoExpiration)
+		key := tableName + "_" + PK
+		cache.GCache.Set(key, string(strVal), gcache.NoExpiration)
+		//logging.Info(fmt.Sprintf("Set to Cache key : %s, val : %s", key, string(strVal)))
 	}
+}
+
+func GetLocalCache(tableName string, PK string) string {
+	key := tableName + "_" + PK
+	if val, found := cache.GCache.Get(key); found {
+		return val.(string)
+	}
+	return ""
 }
 
 func CompareWithCache(tableColumnsMap map[string]string, renameResult []map[string]string) (db.ExecInfo, db.ExecInfo) {
@@ -154,7 +211,7 @@ func CompareWithCache(tableColumnsMap map[string]string, renameResult []map[stri
 	for k, _ := range renameResult[0] {
 		keysArr = append(keysArr, k)
 	}
-	logging.Info(keysArr)
+	//logging.Info(keysArr)
 	insertExec := db.ExecInfo{DesDBPtr.DBName, tableName, db.INSERT, tablePK, []map[string]string{}}
 	updateExec := db.ExecInfo{DesDBPtr.DBName, tableName, db.UPDATE, tablePK, []map[string]string{}}
 	for _, v := range renameResult {
@@ -173,11 +230,16 @@ func CompareWithCache(tableColumnsMap map[string]string, renameResult []map[stri
 				str = resstr + ";"
 			}
 			srcQueryStr = srcQueryStr + str
-			valJSONStr, _ := redisclient.HGet(tableName, v[tablePK]).Result()
+			//
+			valJSONStr := GetLocalCache(tableName, v[tablePK])
+			if valJSONStr == "" {
+				// key is not exist. Inset hande.
+				handle = db.INSERT
+				break
+			}
 			valMap := make(map[string]interface{})
 			err := json.Unmarshal([]byte(valJSONStr), &valMap)
 			if err != nil {
-				// key is not exist. Inset hande.
 				handle = db.INSERT
 				break
 			}
@@ -185,12 +247,13 @@ func CompareWithCache(tableColumnsMap map[string]string, renameResult []map[stri
 			str = val + ";"
 			cacheQueryStr = cacheQueryStr + str
 		}
-		strShow, _ := json.Marshal(v)
-		logging.Info(fmt.Sprintf("need handle : %s , value :  %s, srcQueryStr : %s , cacheQueryStr : %s", handle, strShow, srcQueryStr, cacheQueryStr))
+		//strShow, _ := json.Marshal(v)
+		//logging.Info(fmt.Sprintf("need handle : %s , value :  %s, srcQueryStr : %s , cacheQueryStr : %s", handle, strShow, srcQueryStr, cacheQueryStr))
 		if handle == "" {
 			srcQueryMD5 = fmt.Sprintf("%x", md5.Sum([]byte(srcQueryStr)))
 			cacheQueryMD5 = fmt.Sprintf("%x", md5.Sum([]byte(cacheQueryStr)))
-			logging.Info(fmt.Sprintf("srcQueryMD5 : %s , cacheQueryMD5 : %s", srcQueryMD5, cacheQueryMD5))
+			//logging.Info(fmt.Sprintf("need handle : %s , value :  %s, srcQueryStr : %s , cacheQueryStr : %s", handle, strShow, srcQueryStr, cacheQueryStr))
+			//logging.Info(fmt.Sprintf("srcQueryMD5 : %s , cacheQueryMD5 : %s", srcQueryMD5, cacheQueryMD5))
 			if srcQueryMD5 != cacheQueryMD5 {
 				// update handle.
 				handle = db.UPDATE
@@ -208,18 +271,14 @@ func CompareWithCache(tableColumnsMap map[string]string, renameResult []map[stri
 }
 
 func InsertAndUpdate(insertExec db.ExecInfo, updateExec db.ExecInfo) {
-	//insert handle
-	//insertStr, _ := json.Marshal(insertExec)
-	//updateStr, _ := json.Marshal(updateExec)
-	//logging.Info(fmt.Sprintf("insertExec : %s\nupdateExec:%s\n", string(insertStr), string(updateStr)))
-
+	//insert handle.
 	if len(insertExec.Content) > 0 {
 		logging.Info(fmt.Sprintf("insertExec Count : %d ", len(insertExec.Content)))
 		err := DesDBPtr.Exec(insertExec)
 		if err != nil {
 			logging.Info(err)
+			os.Exit(0)
 		}
-		//update redis.
 		CacheToLocal(insertExec.TableName, insertExec.Content)
 	}
 	//update handle.
@@ -229,8 +288,27 @@ func InsertAndUpdate(insertExec db.ExecInfo, updateExec db.ExecInfo) {
 		if err != nil {
 			logging.Info(err)
 		}
-		//update redis.
 		CacheToLocal(insertExec.TableName, insertExec.Content)
+	}
+}
+
+func sqlAddCondition(tableName string, sql string, condition string) string {
+	tableNameTmp := strings.ToLower(tableName)
+	sqlTmp := strings.ToLower(sql)
+
+	whereFlag := strings.Contains(sqlTmp, "where")
+	if whereFlag {
+		pos := strings.Index(sqlTmp, "where")
+		pos += 5
+		sqlHead := sql[:pos]
+		sqlTail := sql[pos:]
+		return sqlHead + " " + condition + " and " + sqlTail
+	} else {
+		pos := strings.Index(sqlTmp, tableNameTmp)
+		pos += len(tableName)
+		sqlHead := sql[:pos]
+		sqlTail := sql[pos:]
+		return sqlHead + " where " + condition + sqlTail
 	}
 }
 
@@ -243,7 +321,7 @@ func isCompare(nameType string) bool {
 
 func TypeConv(nameType string, value string) (bool, string) {
 	valueStr := strings.ToLower(value)
-	//bool
+	//bool type handle, conv t -> true,f -> false.
 	if (nameType == "VARCHAR2") && (valueStr == "t" || valueStr == "f") {
 		if valueStr == "t" {
 			return true, "true"
