@@ -11,8 +11,8 @@ dbsync:
 
 .PHONY: release
 release:
-	cp -rf ./dbsync ./release/
-	cp -rf ./config.json ./release/
+	cp -rf dbsync ./release/
+	cp -rf config.json ./release/
 	tar -czf dbsync.tar.gz release
 
 .PHONY: test

@@ -16,7 +16,8 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
-	//_ "github.com/mattn/go-oci8"
+	_ "cloud.google.com/go"
+	_ "github.com/mattn/go-oci8"
 )
 
 func Setup() {
