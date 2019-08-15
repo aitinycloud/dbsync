@@ -46,6 +46,9 @@ func (db *DBServer) Start() error {
 	case SQLITE3:
 		// ./testdb.db
 		db.DB, err = sql.Open(SQLITE3, fmt.Sprintf("%s", dbname))
+	case MSSQLSERVER:
+		DSN := fmt.Sprintf("sqlserver://%s:%s@%s/instance?database=%s", user, passwd, host, dbname)
+		db.DB, err = sql.Open(MSSQLSERVER, DSN)
 	default:
 		panic(fmt.Sprintf("InitDB error . dbtype %s is error .", dbtype))
 	}
@@ -147,7 +150,6 @@ func (db *DBServer) Exec(execInfo ExecInfo) error {
 				fmt.Println("Exec err : ", err, " sql : ", sql)
 				return err
 			}
-			//time.Sleep(10 * time.Microsecond)
 		}
 	}
 	return nil
@@ -263,6 +265,24 @@ func (db *DBServer) QueryPage(sql string, start int, num int) string {
 	if db.DBtype == POSTGRESQL {
 		return sql + fmt.Sprintf(" limit %d offset %d ", num, start)
 	}
+	if db.DBtype == MSSQLSERVER {
+		/*
+			tmpFmt := `
+			SELECT  *
+			FROM    ( SELECT TOP PageSize
+								*
+					FROM      ( SELECT TOP [PageIndex*PageSize]
+											*
+								FROM      (%s)
+								ORDER BY  id ASC
+								) AS b
+					ORDER BY  id DESC
+					) AS c
+			ORDER BY id ASC;
+			`
+			return fmt.Sprintf(tmpFmt, sql, (num + start), start)
+		*/
+	}
 	return sql
 }
 
@@ -276,6 +296,14 @@ func (db *DBServer) GetTableColumns(tableName string) []map[string]string {
 		strFmt := ` SELECT a.attname AS name,t.typname AS type FROM pg_class c,pg_attribute a,pg_type t
 		WHERE c.relname = '%s' and a.attnum > 0 and a.attrelid = c.oid and a.atttypid = t.oid
 		ORDER BY a.attnum `
+		sql = fmt.Sprintf(strFmt, tableName)
+	}
+	if db.DBtype == MYSQL {
+		strFmt := "SELECT COLUMN_NAME as name,DATA_TYPE as type FROM information_schema.columns WHERE table_name='%s'"
+		sql = fmt.Sprintf(strFmt, tableName)
+	}
+	if db.DBtype == MSSQLSERVER {
+		strFmt := "SELECT COLUMN_NAME as name,DATA_TYPE as type FROM information_schema.columns WHERE table_name='%s'"
 		sql = fmt.Sprintf(strFmt, tableName)
 	}
 	results, err := dbQueryString(db.DB, sql)

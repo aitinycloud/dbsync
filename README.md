@@ -21,7 +21,7 @@ make
 
 ## note
 dbsync是数据库同步工具,使用go编写，主要特性有
-1. 支持数据库种类多(oracal,postgresql,mysql等,其他添加中)
+1. 支持数据库种类多(oracal,postgresql,mysql,sqlserver等,其他添加中)
 2. 灵活支持自定义SQL,支持多表和视图
 3. 支持字段映射,可以配置字段的映射关系
 4. 性能优化,批量操作

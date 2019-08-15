@@ -13,7 +13,6 @@ dbsync:
 release:
 	cp -rf ./dbsync ./release/
 	cp -rf ./config.json ./release/
-	cp -rf ./config.yaml ./release/
 	tar -czf dbsync.tar.gz release
 
 .PHONY: test

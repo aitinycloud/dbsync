@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	MYSQL      = "mysql"
-	POSTGRESQL = "postgres"
-	ORACLE     = "oracle"
-	SQLITE3    = "sqlite3"
+	MYSQL       = "mysql"
+	POSTGRESQL  = "postgres"
+	ORACLE      = "oracle"
+	SQLITE3     = "sqlite3"
+	MSSQLSERVER = "sqlserver"
 )
 
 const (
