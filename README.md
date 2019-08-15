@@ -40,7 +40,7 @@ dbsync是数据库同步工具,使用go编写，主要特性有
 我是小铭哥 专注做后台开发和系统架构
 我在重庆两江新区。
 
-<p align="center"><img src="doc/wx/2074030723.jpg" alt="wx Logo"></p>
+<p align="center"><img src="doc/wx/2074030723.jpg" width="200" height="200" alt="wx Logo"></p>
 
 
 
