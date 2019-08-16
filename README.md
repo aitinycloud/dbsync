@@ -14,7 +14,9 @@ eg :
 
 
 ## build
-make
+- make install
+- make
+- make release
 
 ## run
 ./bin/start.sh
