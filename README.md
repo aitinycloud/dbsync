@@ -26,13 +26,13 @@ dbsync是数据库同步工具,使用go编写，主要特性有
 3. 支持字段映射,可以配置字段的映射关系
 4. 性能优化,批量操作
 
-## bench
+## benchmark
 - 本地虚拟机 centos6 2核2G 
-- postgres (PostgreSQL) 10.6
-- mysql  Ver 14.14 Distrib 5.1.73
+- PostgreSQL 10.6
+- mysql 5.1.73
 
 1. insert 117275 条记录 14S TPS 8376/s
-2. update 117275 条记录 44S TPS 2665/s (update操作中计算md5会花一点时间)
+2. update 117275 条记录 44S TPS 2665/s
 
 ## problem
 如果有任何疑问或错误，欢迎在 issues 进行提问或给予修正意见。 如果喜欢或对你有所帮助，欢迎 Star。
