@@ -80,23 +80,11 @@ func Work() {
 	}
 	reNameMapInfo.NameMap = NameMap
 	// get srcDB tableColumns
-	tableColumnsResult := SrcDB.GetTableColumns(jobMap["srcTable"].String())
-	tableColumnsMap := make(map[string]string)
-	for i := 0; i < len(tableColumnsResult); i++ {
-		key := ""
-		val := ""
-		if SrcDB.DBtype == db.ORACLE {
-			key = tableColumnsResult[i]["NAME"]
-			val = tableColumnsResult[i]["TYPE"]
-		}
-		if SrcDB.DBtype == db.POSTGRESQL || SrcDB.DBtype == db.MYSQL {
-			key = tableColumnsResult[i]["name"]
-			val = tableColumnsResult[i]["type"]
-		}
-		if res, ok := NameMap[key]; ok {
-			tableColumnsMap[res] = val
-		} else {
-			tableColumnsMap[key] = val
+	tableColumnsMap := SrcDB.GetTableColumns(jobMap["srcTable"].String())
+	for k, v := range NameMap {
+		if res, ok := tableColumnsMap[k]; ok {
+			tableColumnsMap[v] = res
+			delete(tableColumnsMap, k)
 		}
 	}
 	strColumns, _ := json.Marshal(tableColumnsMap)
@@ -131,8 +119,6 @@ func Work() {
 				//
 				srcTableResult := SrcDB.QuerySQL(sqlQueryPage)
 				renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
-				//renameResultstr, _ := json.Marshal(renameResult)
-				//logging.Info("ReNameResult : ", string(renameResultstr))
 				insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
 				InsertAndUpdate(insertExec, updateExec)
 			}
@@ -140,8 +126,6 @@ func Work() {
 			//
 			srcTableResult := SrcDB.QuerySQL(sql)
 			renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
-			//renameResultstr, _ := json.Marshal(renameResult)
-			//logging.Info("ReNameResult : ", string(renameResultstr))
 			insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
 			InsertAndUpdate(insertExec, updateExec)
 		}
@@ -165,16 +149,12 @@ func Work() {
 				//
 				srcTableResult := SrcDB.QuerySQL(sqlQueryPage)
 				renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
-				//renameResultstr, _ := json.Marshal(renameResult)
-				//logging.Info("ReNameResult : ", string(renameResultstr))
 				insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
 				InsertAndUpdate(insertExec, updateExec)
 			}
 		} else {
 			srcTableResult := SrcDB.QuerySQL(sql)
 			renameResult := SrcDB.ReName(srcTableResult, reNameMapInfo)
-			//renameResultstr, _ := json.Marshal(renameResult)
-			//logging.Info("ReNameResult : ", string(renameResultstr))
 			insertExec, updateExec := CompareWithCache(tableColumnsMap, renameResult)
 			InsertAndUpdate(insertExec, updateExec)
 		}
@@ -190,7 +170,6 @@ func CacheToLocal(tableName string, desTableResult []map[string]string) {
 		strVal, _ := json.Marshal(v)
 		key := tableName + "_" + PK
 		cache.GCache.Set(key, string(strVal), gcache.NoExpiration)
-		//logging.Info(fmt.Sprintf("Set to Cache key : %s, val : %s", key, string(strVal)))
 	}
 }
 
@@ -212,9 +191,8 @@ func CompareWithCache(tableColumnsMap map[string]string, renameResult []map[stri
 	for k, _ := range renameResult[0] {
 		keysArr = append(keysArr, k)
 	}
-	//logging.Info(keysArr)
-	insertExec := db.ExecInfo{DesDBPtr.DBName, tableName, db.INSERT, tablePK, []map[string]string{}}
-	updateExec := db.ExecInfo{DesDBPtr.DBName, tableName, db.UPDATE, tablePK, []map[string]string{}}
+	insertExec := db.ExecInfo{DBName: DesDBPtr.DBName, TableName: tableName, Handle: db.INSERT, PK: tablePK, ColumnMap: tableColumnsMap, Content: []map[string]string{}}
+	updateExec := db.ExecInfo{DBName: DesDBPtr.DBName, TableName: tableName, Handle: db.UPDATE, PK: tablePK, ColumnMap: tableColumnsMap, Content: []map[string]string{}}
 	for _, v := range renameResult {
 		handle := ""
 		srcQueryStr := ""

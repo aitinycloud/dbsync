@@ -288,7 +288,7 @@ func (db *DBServer) QueryPage(sql string, start int, num int) string {
 	return sql
 }
 
-func (db *DBServer) GetTableColumns(tableName string) []map[string]string {
+func (db *DBServer) GetTableColumns(tableName string) map[string]string {
 	sql := ""
 	if db.DBtype == ORACLE {
 		strFmt := "select COLUMN_NAME as NAME,DATA_TYPE as TYPE from user_tab_columns where Table_Name='%s' "
@@ -312,7 +312,21 @@ func (db *DBServer) GetTableColumns(tableName string) []map[string]string {
 	if err != nil {
 		fmt.Println("Query err : ", err, " sql : ", sql)
 	}
-	return results
+	tableColumnsMap := make(map[string]string)
+	for i := 0; i < len(results); i++ {
+		key := ""
+		val := ""
+		if db.DBtype == ORACLE {
+			key = results[i]["NAME"]
+			val = results[i]["TYPE"]
+		}
+		if db.DBtype == POSTGRESQL || db.DBtype == MYSQL {
+			key = results[i]["name"]
+			val = results[i]["type"]
+		}
+		tableColumnsMap[key] = val
+	}
+	return tableColumnsMap
 }
 
 func createQueryTotalCountSql(queryInfo QueryInfo) string {
@@ -371,7 +385,18 @@ func insertSql(dbtype string, execInfo ExecInfo) []string {
 					if strings.Contains(TmpValueStr, "'") {
 						TmpValueStr = strings.Replace(TmpValueStr, "'", "''", -1)
 					}
-					RowTmpValueStr += "'" + TmpValueStr + "'" + ","
+					bNull := false
+					if TmpValueStr == "" {
+						if dbtype == MYSQL {
+							if execInfo.ColumnMap[ColumnArr[j]] != "varchar" {
+								RowTmpValueStr += "null" + ","
+								bNull = true
+							}
+						}
+					}
+					if !bNull {
+						RowTmpValueStr += "'" + TmpValueStr + "'" + ","
+					}
 				}
 				if endflag {
 					RowTmpValueStr = ""

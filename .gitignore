@@ -13,5 +13,6 @@
 
 logs/
 
+config.json
 dbsync
 dbsync.exe

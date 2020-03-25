@@ -52,6 +52,7 @@ type ExecInfo struct {
 	TableName string
 	Handle    string
 	PK        string
+	ColumnMap map[string]string
 	Content   []map[string]string
 }
 
