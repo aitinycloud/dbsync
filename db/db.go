@@ -16,8 +16,9 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
-	_ "cloud.google.com/go"
-	_ "github.com/mattn/go-oci8"
+	//_ "github.com/mattn/go-sqlite3"             //default sqlite3 off
+	//_ "github.com/denisenkom/go-mssqldb"        //default mssql off
+	//_ "github.com/mattn/go-oci8"                //default oracle off,please open by userself.
 )
 
 func Setup() {
