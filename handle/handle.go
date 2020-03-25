@@ -17,11 +17,12 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"../config"
-	"../db"
-	"../pkg/cache"
-	"../pkg/logging"
-	"../pkg/system"
+	"dbsync/config"
+	"dbsync/db"
+	"dbsync/pkg/cache"
+	"dbsync/pkg/logging"
+	"dbsync/pkg/system"
+
 	gcache "github.com/patrickmn/go-cache"
 )
 

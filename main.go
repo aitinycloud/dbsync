@@ -8,7 +8,7 @@
 package main
 
 import (
-	"./handle"
+	"dbsync/handle"
 )
 
 func main() {
