@@ -383,7 +383,7 @@ func insertSql(dbtype string, execInfo ExecInfo) []string {
 						TmpValueStr = ""
 					}
 					if strings.Contains(TmpValueStr, "'") {
-						TmpValueStr = strings.Replace(TmpValueStr, "'", "''", -1)
+						TmpValueStr = strings.Replace(TmpValueStr, "'", "\\'", -1)
 					}
 					bNull := false
 					if TmpValueStr == "" {
